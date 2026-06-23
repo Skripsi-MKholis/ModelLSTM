@@ -1,6 +1,6 @@
 """
 Script generator: membuat main.ipynb dari scratch.
-Jalankan: python generate_notebook.py
+Jalankan dari root direktori: python Scripts/generate_notebook.py
 """
 import json, os
 
@@ -1109,7 +1109,7 @@ notebook = {
     "nbformat_minor": 5
 }
 
-out_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'main.ipynb')
+out_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'main.ipynb')
 with open(out_path, 'w', encoding='utf-8') as f:
     json.dump(notebook, f, ensure_ascii=False, indent=1)
 
