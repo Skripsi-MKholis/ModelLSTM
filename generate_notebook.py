@@ -23,11 +23,11 @@ md("""# Model LSTM Prediksi Penjualan Eatstedi
 **Dataset:** Transaksi kantin DTEDI UGM, 24 Agustus 2024 – 20 Juni 2026
 **Target:** Prediksi revenue harian, mingguan, dan bulanan menggunakan Long Short-Term Memory (LSTM)
 
-| Granularitas | Look-back | Horizon | Metrik |
-|---|---|---|---|
-| Harian | 14 hari aktif | 7 hari aktif | RMSE, MAE, MAPE |
-| Mingguan | 8 minggu | 4 minggu | RMSE, MAE, MAPE |
-| Bulanan | 6 bulan | 3 bulan | RMSE, MAE, MAPE |""")
+| Granularitas | Look-back | Horizon | Split | Metrik |
+|---|---|---|---|---|
+| Harian | 14 hari aktif | 7 hari aktif | 70/15/15 | RMSE, MAE, MAPE |
+| Mingguan | 5 minggu | 4 minggu | 70/15/15 | RMSE, MAE, MAPE |
+| Bulanan | 3 bulan | 3 bulan | 65/35 (no-val, data terbatas) | RMSE, MAE, MAPE |""")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SECTION 0
@@ -65,9 +65,9 @@ os.makedirs(SCALER_DIR, exist_ok=True)
 # ── Hyperparameter Global ────────────────────────────────────────────────────
 LOOK_BACK   = 14   # hari aktif (window input harian)
 HORIZON     = 7    # hari aktif ke depan
-LOOK_BACK_W = 8    # minggu (window input mingguan)
+LOOK_BACK_W = 5    # minggu — dikurangi dari 8 karena ~75 minggu aktif (val set hanya 11 minggu)
 HORIZON_W   = 4    # minggu ke depan
-LOOK_BACK_M = 6    # bulan (window input bulanan)
+LOOK_BACK_M = 3    # bulan — dikurangi dari 6 karena hanya ~20 bulan aktif
 HORIZON_M   = 3    # bulan ke depan
 BATCH_SIZE  = 32
 EPOCHS      = 100
@@ -722,34 +722,42 @@ code("""
 monthly = pd.read_csv(MONTHLY_CSV)
 monthly = monthly[monthly['revenue'] > 0].sort_values(['year','month']).reset_index(drop=True)
 
-FEATURES_M = ['revenue', 'transactions', 'qty_sold', 'active_days']
+FEATURES_M   = ['revenue', 'transactions', 'qty_sold', 'active_days']
 N_FEATURES_M = len(FEATURES_M)
 
-n_m       = len(monthly)
-n_train_m = int(n_m * 0.70)
-n_val_m   = int(n_m * 0.15)
+n_m = len(monthly)
+# Data bulanan sangat terbatas (~20 bulan). Rumus minimum sampel:
+#   test harus >= LOOK_BACK_M + HORIZON_M bulan agar ada minimal 1 sequence.
+# Gunakan split 65/35 train/test TANPA val set untuk menghindari array kosong.
+n_test_m  = LOOK_BACK_M + HORIZON_M + 2   # margin 2 bulan → minimal 3 test sequences
+n_train_m = n_m - n_test_m
+n_val_m   = 0  # tidak ada val set untuk data bulanan
+
+print(f'Monthly — {n_m} bulan total  |  train: {n_train_m}  |  test: {n_test_m}  |  (no val)')
 
 scaler_m = MinMaxScaler()
 train_m  = scaler_m.fit_transform(monthly.iloc[:n_train_m][FEATURES_M].values)
-val_m    = scaler_m.transform(monthly.iloc[n_train_m:n_train_m+n_val_m][FEATURES_M].values)
-test_m   = scaler_m.transform(monthly.iloc[n_train_m+n_val_m:][FEATURES_M].values)
+test_m   = scaler_m.transform(monthly.iloc[n_train_m:][FEATURES_M].values)
 
 with open(os.path.join(SCALER_DIR, 'scaler_monthly.pkl'), 'wb') as f:
     pickle.dump(scaler_m, f)
 
 X_train_m, y_train_m = create_sequences(train_m, LOOK_BACK_M, HORIZON_M)
-X_val_m,   y_val_m   = create_sequences(val_m,   LOOK_BACK_M, HORIZON_M)
 X_test_m,  y_test_m  = create_sequences(test_m,  LOOK_BACK_M, HORIZON_M)
 
-print(f'Monthly — {n_m} bulan  |  X_train_m: {X_train_m.shape}')
+print(f'X_train_m: {X_train_m.shape}  |  X_test_m: {X_test_m.shape}')
 
-model_monthly = build_lstm_model(LOOK_BACK_M, N_FEATURES_M, HORIZON_M, units=32)
+# EarlyStopping monitor='loss' karena tidak ada val set
+CALLBACKS_M = [
+    EarlyStopping(monitor='loss', patience=20, restore_best_weights=True, verbose=1),
+]
+
+model_monthly = build_lstm_model(LOOK_BACK_M, N_FEATURES_M, HORIZON_M, units=16)
 history_m = model_monthly.fit(
     X_train_m, y_train_m,
-    epochs=EPOCHS,
-    batch_size=8,
-    validation_data=(X_val_m, y_val_m),
-    callbacks=CALLBACKS,
+    epochs=150,
+    batch_size=4,
+    callbacks=CALLBACKS_M,
     verbose=1
 )
 model_monthly.save(os.path.join(MODEL_DIR, 'lstm_monthly.keras'))
@@ -859,26 +867,25 @@ res_train_w = evaluate_model(model_weekly, X_train_w, y_train_w, scaler_rev_w, '
 res_val_w   = evaluate_model(model_weekly, X_val_w,   y_val_w,   scaler_rev_w, 'Validation')
 res_test_w  = evaluate_model(model_weekly, X_test_w,  y_test_w,  scaler_rev_w, 'Test')
 
-# ── Evaluasi model bulanan ────────────────────────────────────────────────────
+# ── Evaluasi model bulanan (train/test only — tidak ada val) ─────────────────
 scaler_rev_m = MinMaxScaler()
 scaler_rev_m.fit(monthly.iloc[:n_train_m][['revenue']].values)
 
-print('\\n=== Model Bulanan ===')
+print('\\n=== Model Bulanan (no-val) ===')
 res_train_m = evaluate_model(model_monthly, X_train_m, y_train_m, scaler_rev_m, 'Train')
-res_val_m   = evaluate_model(model_monthly, X_val_m,   y_val_m,   scaler_rev_m, 'Validation')
 res_test_m  = evaluate_model(model_monthly, X_test_m,  y_test_m,  scaler_rev_m, 'Test')
 
 # ── Tabel ringkasan ───────────────────────────────────────────────────────────
+_keys = ['rmse','mae','mape']
 summary = pd.DataFrame([
-    {'Model': 'Harian',  'Set':'Train', **{k:v for k,v in res_train.items() if k in ['rmse','mae','mape']}},
-    {'Model': 'Harian',  'Set':'Val',   **{k:v for k,v in res_val.items()   if k in ['rmse','mae','mape']}},
-    {'Model': 'Harian',  'Set':'Test',  **{k:v for k,v in res_test.items()  if k in ['rmse','mae','mape']}},
-    {'Model': 'Mingguan','Set':'Train', **{k:v for k,v in res_train_w.items() if k in ['rmse','mae','mape']}},
-    {'Model': 'Mingguan','Set':'Val',   **{k:v for k,v in res_val_w.items()   if k in ['rmse','mae','mape']}},
-    {'Model': 'Mingguan','Set':'Test',  **{k:v for k,v in res_test_w.items()  if k in ['rmse','mae','mape']}},
-    {'Model': 'Bulanan', 'Set':'Train', **{k:v for k,v in res_train_m.items() if k in ['rmse','mae','mape']}},
-    {'Model': 'Bulanan', 'Set':'Val',   **{k:v for k,v in res_val_m.items()   if k in ['rmse','mae','mape']}},
-    {'Model': 'Bulanan', 'Set':'Test',  **{k:v for k,v in res_test_m.items()  if k in ['rmse','mae','mape']}},
+    {'Model': 'Harian',   'Set':'Train', **{k:v for k,v in res_train.items()   if k in _keys}},
+    {'Model': 'Harian',   'Set':'Val',   **{k:v for k,v in res_val.items()     if k in _keys}},
+    {'Model': 'Harian',   'Set':'Test',  **{k:v for k,v in res_test.items()    if k in _keys}},
+    {'Model': 'Mingguan', 'Set':'Train', **{k:v for k,v in res_train_w.items() if k in _keys}},
+    {'Model': 'Mingguan', 'Set':'Val',   **{k:v for k,v in res_val_w.items()   if k in _keys}},
+    {'Model': 'Mingguan', 'Set':'Test',  **{k:v for k,v in res_test_w.items()  if k in _keys}},
+    {'Model': 'Bulanan',  'Set':'Train', **{k:v for k,v in res_train_m.items() if k in _keys}},
+    {'Model': 'Bulanan',  'Set':'Test',  **{k:v for k,v in res_test_m.items()  if k in _keys}},
 ])
 summary['rmse'] = summary['rmse'].map('Rp {:,.0f}'.format)
 summary['mae']  = summary['mae'].map('Rp {:,.0f}'.format)
