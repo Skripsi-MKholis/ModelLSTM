@@ -9,10 +9,11 @@ app = Flask(__name__)
 # ── CONFIGURATION & CONFIG PATHS ─────────────────────────────────────────────
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "Data")
-DAILY_CSV = os.path.join(DATA_DIR, "daily_sales.csv")
-WEEKLY_CSV = os.path.join(DATA_DIR, "weekly_sales.csv")
-MONTHLY_CSV = os.path.join(DATA_DIR, "monthly_sales.csv")
-TRANSACTIONS_CSV = os.path.join(DATA_DIR, "raw_transactions.csv")
+EKSTRAK_DIR = os.path.join(DATA_DIR, "Ekstrak")
+DAILY_CSV = os.path.join(EKSTRAK_DIR, "daily_sales.csv")
+WEEKLY_CSV = os.path.join(EKSTRAK_DIR, "weekly_sales.csv")
+MONTHLY_CSV = os.path.join(EKSTRAK_DIR, "monthly_sales.csv")
+TRANSACTIONS_CSV = os.path.join(EKSTRAK_DIR, "raw_transactions.csv")
 
 # ── GLOBAL CONFIG OPERASIONAL DEFAULT ────────────────────────────────────────
 # Pengaturan operasional default (bisa di-overwrite dinamis via request payload)

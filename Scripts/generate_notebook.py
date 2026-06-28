@@ -54,8 +54,8 @@ plt.rcParams['font.size'] = 11
 sns.set_style('whitegrid')
 
 # ── Path & Directory ─────────────────────────────────────────────────────────
-SQL_PATH   = os.path.join('Data', 'eatstedi-20260621-010820.sql')
-DATA_DIR   = 'Data'
+SQL_PATH   = os.path.join('Data', 'Ekstrak', 'eatstedi-20260621-010820.sql')
+DATA_DIR   = os.path.join('Data', 'Ekstrak')
 MODEL_DIR  = 'Models'
 SCALER_DIR = os.path.join(MODEL_DIR, 'scalers')
 
