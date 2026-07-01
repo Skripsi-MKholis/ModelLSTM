@@ -1,0 +1,5 @@
+model,train_data,synth_ratio,look_back,horizon,test_rmse,test_mae,test_mape,test_smape,test_mase,mase_h1,naive_mae
+LSTM_Augmented_TimeGAN,real(219) + synthetic(298seq),1.5,14,7,1047841.75,860694.8,72.1898,41.4946,2.3717,2.5053,362901.38
+LSTM_Baseline_RealOnly,real(219),0.0,14,7,1935118.86,1750355.09,81.2073,115.4033,4.8232,3.9277,362901.38
+Seasonal_Naive_m5,n/a,0.0,5,7,975129.86,755403.06,86.0494,37.5794,2.0816,2.1403,362901.38
+Seasonal_Naive_m7,n/a,0.0,7,7,985180.39,783178.57,87.9182,38.235,2.1581,2.2738,362901.38
