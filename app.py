@@ -1,4 +1,5 @@
 import os
+import json
 import datetime
 import numpy as np
 import pandas as pd
@@ -133,6 +134,25 @@ def generate_future_business_days(start_date, n_steps):
 
 # ── ENDPOINTS ────────────────────────────────────────────────────────────────
 
+@app.route('/', methods=['GET'])
+def index():
+    """Halaman indeks — mencegah 404 saat URL dasar diakses langsung."""
+    return jsonify({
+        "message": "ModelLSTM API (Eatstedi) aktif.",
+        "scope": "eatstedi",
+        "endpoints": {
+            "status": "GET /api/status",
+            "predict_daily": "GET/POST /api/predict/daily",
+            "predict_weekly": "GET/POST /api/predict/weekly",
+            "predict_monthly": "GET/POST /api/predict/monthly",
+            "recommend_stock": "GET/POST /api/recommendations/stock",
+            "recommend_target": "GET/POST /api/recommendations/target",
+            "sales_record": "POST /api/sales/record"
+        },
+        "docs": "Dokumen/API Documentation.md"
+    }), 200
+
+
 @app.route('/api/status', methods=['GET'])
 def get_status():
     """Endpoint cek status & kesehatan API."""
@@ -234,7 +254,8 @@ def predict_daily():
             "average_predicted_revenue_naive": int(round(total_naive / n_days))
         }
     }
-    
+
+    print(f"[PREDICT] /api/predict/daily -> {json.dumps(response, indent=2, default=str)}")
     return jsonify(response), 200
 
 
@@ -274,7 +295,7 @@ def predict_weekly():
                 "predicted_revenue_naive": int(round(naive_val))
             })
             
-        return jsonify({
+        response = {
             "metadata": {
                 "model_used": "Mean-4 Weekly Average",
                 "baseline_model": "Naive Weekly"
@@ -284,8 +305,10 @@ def predict_weekly():
                 "total_predicted_revenue_mean4": int(round(mean_4 * n_weeks)),
                 "total_predicted_revenue_naive": int(round(naive_val * n_weeks))
             }
-        }), 200
-        
+        }
+        print(f"[PREDICT] /api/predict/weekly -> {json.dumps(response, indent=2, default=str)}")
+        return jsonify(response), 200
+
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 
@@ -326,7 +349,7 @@ def predict_monthly():
                 "predicted_revenue_naive": int(round(naive_val))
             })
             
-        return jsonify({
+        response = {
             "metadata": {
                 "model_used": "Mean-3 Monthly Average",
                 "baseline_model": "Naive Monthly"
@@ -336,8 +359,10 @@ def predict_monthly():
                 "total_predicted_revenue_mean3": int(round(mean_3 * n_months)),
                 "total_predicted_revenue_naive": int(round(naive_val * n_months))
             }
-        }), 200
-        
+        }
+        print(f"[PREDICT] /api/predict/monthly -> {json.dumps(response, indent=2, default=str)}")
+        return jsonify(response), 200
+
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 
@@ -424,12 +449,14 @@ def recommend_stock():
             "handling_instruction": "PERISHABLE! Segera habiskan/jangan simpan melebihi 24 jam" if is_fast_moving_perishable else "Aman disimpan"
         })
         
-    return jsonify({
+    response = {
         "target_date": target_date.strftime('%Y-%m-%d') if hasattr(target_date, 'strftime') else str(target_date),
         "predicted_revenue_base": int(round(pred_rev)),
         "category_allocations": category_allocations,
         "product_recommendations": product_recommendations
-    }), 200
+    }
+    print(f"[PREDICT] /api/recommendations/stock -> {json.dumps(response, indent=2, default=str)}")
+    return jsonify(response), 200
 
 
 @app.route('/api/recommendations/target', methods=['GET', 'POST'])
@@ -463,7 +490,7 @@ def recommend_target():
         if target_agresif > max_15 * 1.3:
             target_agresif = max_15 * 1.1
             
-        return jsonify({
+        response = {
             "historical_basis_15_active_days": {
                 "average_revenue": int(round(mean_15)),
                 "std_deviation": int(round(std_15)),
@@ -479,7 +506,9 @@ def recommend_target():
                 "moderat_pesan": f"Target pertumbuhan standar (+{int((factor-1)*100)}%). Direkomendasikan untuk target operasional harian.",
                 "agresif_pesan": "Cocok untuk masa-masa ramai (seperti awal masuk semester/welcome week)."
             }
-        }), 200
+        }
+        print(f"[PREDICT] /api/recommendations/target -> {json.dumps(response, indent=2, default=str)}")
+        return jsonify(response), 200
         
     except Exception as e:
         return jsonify({"error": str(e)}), 400
