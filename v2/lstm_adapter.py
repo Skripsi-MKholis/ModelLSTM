@@ -25,6 +25,8 @@ import threading
 import numpy as np
 import pandas as pd
 
+from .calendar_utils import is_ramadan as _is_ramadan
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODELS_DIR = os.path.join(os.path.dirname(BASE_DIR), "Models")
 
@@ -79,7 +81,7 @@ def _row_features(date: pd.Timestamp, revenue: float, tx: float, qty: float) -> 
     week = date.isocalendar()[1]
     month = date.month
     dow = date.weekday()
-    is_ramadan = 1.0 if month == 3 else 0.0  # heuristik: kalender Islam tidak tersedia untuk toko umum
+    is_ramadan = _is_ramadan(date)  # definisi year-gated sama seperti saat training, lihat calendar_utils.py
     return [
         revenue, tx, qty,
         np.sin(2 * np.pi * week / 52), np.cos(2 * np.pi * week / 52),

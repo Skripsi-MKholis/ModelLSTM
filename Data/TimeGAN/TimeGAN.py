@@ -7,6 +7,16 @@ Alur:
   →  latih TimeGAN (3 fase)
   →  generate synthetic sequences
   →  inverse transform  →  synthetic_daily.csv
+
+STATUS: cabang eksperimen, TIDAK dipakai di jalur produksi (main.ipynb, app.py,
+app_public.py, v2/*, evaluation/backtest.py sama sekali tidak mereferensikan
+modul atau output modul ini). Hasil perbandingan di
+Models/TimeGAN/comparison_results.csv menunjukkan LSTM+TimeGAN mengungguli
+LSTM baseline murni, tapi masih kalah dari baseline Seasonal-Naive-5 pada
+MASE (2.51 vs 2.14) — sama seperti model LSTM utama yang juga TIDAK LULUS
+kriteria produksi vs seasonal_naive (lihat Dokumen/M3 - Hasil Backtest.md).
+Dipertahankan di repo sebagai eksperimen yang didokumentasikan gagal/inconclusive,
+bukan sebagai bagian dari pipeline yang direkomendasikan.
 """
 
 import os

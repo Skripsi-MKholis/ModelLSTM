@@ -276,15 +276,23 @@ def build_lstm_model(look_back, n_features, forecast_horizon, units=64, dropout=
 
 ### 5.2 Model untuk Prediksi Mingguan
 
-- Input: sequence 8 minggu terakhir (look_back=8)
-- Output: 4 minggu ke depan (horizon=4)
-- Fitur: revenue mingguan, active_days
+> **Catatan (diperbarui, sumber kebenaran = `main.ipynb`):** angka di bawah ini menggantikan draf awal
+> (look_back=8) yang sudah tidak dipakai — direduksi karena data hanya ~75 minggu aktif.
+
+- Input: sequence 5 minggu terakhir (`LOOK_BACK_W=5`)
+- Output: 4 minggu ke depan (`HORIZON_W=4`)
+- Fitur (`FEATURES_W`): `revenue`, `transactions`, `qty_sold`, `active_days`
+- Split: 70/15/15 kronologis
 
 ### 5.3 Model untuk Prediksi Bulanan
 
-- Input: sequence 6 bulan terakhir (look_back=6)
-- Output: 3 bulan ke depan (horizon=3)
-- Fitur: revenue bulanan, active_days
+> **Catatan (diperbarui, sumber kebenaran = `main.ipynb`):** angka di bawah ini menggantikan draf awal
+> (look_back=6) yang sudah tidak dipakai — data hanya ~20 bulan, sehingga tidak ada val set terpisah.
+
+- Input: sequence 3 bulan terakhir (`LOOK_BACK_M=3`)
+- Output: 3 bulan ke depan (`HORIZON_M=3`)
+- Fitur (`FEATURES_M`): `revenue`, `transactions`, `qty_sold`, `active_days`
+- Split: 65/35, **tanpa val set** — EarlyStopping memantau `loss`, bukan `val_loss`
 
 ### 5.4 Hyperparameter Default
 

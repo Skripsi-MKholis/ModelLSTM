@@ -41,6 +41,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE_DIR)
 
 from v2 import baselines  # noqa: E402
+from v2.calendar_utils import is_ramadan  # noqa: E402
 
 DAILY_CSV = os.path.join(BASE_DIR, "Data", "Ekstrak", "daily_sales.csv")
 OUT_DIR = os.path.join(BASE_DIR, "Models", "backtest")
@@ -97,7 +98,7 @@ def _lstm_predict(model, scaler, scaler_rev, df_active, origin_idx):
     week = window["date"].dt.isocalendar().week.astype(float)
     month = window["date"].dt.month.astype(float)
     dow = window["date"].dt.weekday.astype(float)
-    is_ramadan = (month == 3).astype(float)
+    ramadan_flags = window["date"].apply(is_ramadan).to_numpy(dtype=float)
     feats = np.column_stack([
         window["revenue"].to_numpy(dtype=float),
         window["transactions"].to_numpy(dtype=float),
@@ -105,7 +106,7 @@ def _lstm_predict(model, scaler, scaler_rev, df_active, origin_idx):
         np.sin(2 * np.pi * week / 52), np.cos(2 * np.pi * week / 52),
         np.sin(2 * np.pi * month / 12), np.cos(2 * np.pi * month / 12),
         np.sin(2 * np.pi * dow / 5), np.cos(2 * np.pi * dow / 5),
-        is_ramadan,
+        ramadan_flags,
     ])
     scaled = scaler.transform(feats)
     x = scaled.reshape(1, LOOK_BACK, feats.shape[1])

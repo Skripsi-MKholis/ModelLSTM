@@ -525,6 +525,10 @@ def record_sales():
             df.loc[idx, 'is_weekend'] = 1 if target_date.weekday() >= 5 else 0
             # Penentuan libur disesuaikan dinamis
             df.loc[idx, 'is_holiday'] = 1 if target_date.month in CLOSED_MONTHS_DEFAULT else 0
+            # Sengaja selalu 0: toko umum (multi-tenant) tidak tentu mengikuti kalender Ramadan
+            # Eatstedi. Definisi Ramadan yang dipakai saat training LSTM (2025-03, 2026-03) hanya
+            # relevan untuk Eatstedi — lihat v2/calendar_utils.py. app_public.py tidak pernah
+            # memberi makan LSTM, jadi field ini murni untuk kelengkapan skema CSV.
             df.loc[idx, 'is_ramadan'] = 0
             
             message = f"Data tanggal {data['date']} berhasil diperbarui."
@@ -540,7 +544,7 @@ def record_sales():
                 "month": target_date.month,
                 "is_weekend": 1 if target_date.weekday() >= 5 else 0,
                 "is_holiday": 1 if target_date.month in CLOSED_MONTHS_DEFAULT else 0,
-                "is_ramadan": 0
+                "is_ramadan": 0  # sengaja 0, lihat catatan di cabang overwrite di atas
             }
             
             for col in df.columns:

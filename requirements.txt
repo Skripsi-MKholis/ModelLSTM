@@ -5,4 +5,8 @@ seaborn
 scikit-learn
 tensorflow
 ipykernel
-torch --index-url https://download.pytorch.org/whl/cpu
+
+# Eksperimen TimeGAN (Data/TimeGAN/TimeGAN.py) saja - tidak dipakai jalur produksi
+# (main.ipynb, app.py, app_public.py, v2/*, evaluation/backtest.py semua TensorFlow).
+# Install terpisah: pip install -r requirements-timegan.txt
+

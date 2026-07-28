@@ -19,6 +19,7 @@ import pandas as pd
 
 from . import baselines
 from . import lstm_adapter
+from .calendar_utils import EATSTEDI_OPEN_WEEKDAYS, EATSTEDI_CLOSED_MONTHS
 
 MODEL_VERSION = "lstm-v2.1.0"
 MIN_DAYS_REQUIRED = lstm_adapter.MIN_DAYS_REQUIRED
@@ -134,6 +135,13 @@ def _forecast_daily_baseline(df_active: pd.DataFrame, horizon: int, generate_fut
 
 
 def _product_demand(products: list[dict], horizon_days: int) -> list[dict]:
+    """Heuristik ekstrapolasi linear dari avg_daily_qty yang dikirim klien.
+
+    BUKAN output LSTM — tidak ada model time-series per produk di repo ini.
+    `method: "heuristic"` disertakan secara eksplisit di tiap entri supaya
+    konsumen API tidak salah mengira field ini berasal dari model yang sama
+    dengan `daily.revenue` (yang bisa "lstm" atau baseline, lihat metadata.model_used).
+    """
     out = []
     for p in products:
         avg_daily = float(p.get("avg_daily_qty") or 0.0)
@@ -149,6 +157,7 @@ def _product_demand(products: list[dict], horizon_days: int) -> list[dict]:
             "recommended_qty": int(round(recommended_qty)),
             "confidence": 0.5,
             "trend": "stable",
+            "method": "heuristic",
         })
     return out
 
@@ -174,6 +183,9 @@ def _hourly_forecast(history_hourly: list[dict]) -> list[dict]:
 
 
 def _recommendations(df_active: pd.DataFrame, hourly: list[dict]) -> list[dict]:
+    """Rekomendasi bisnis (target omzet, promo jam sepi) — heuristik agregat,
+    bukan hasil model LSTM. `method: "heuristic"` ditandai eksplisit per item,
+    sejalan dengan `_product_demand`, supaya tidak dikira kontribusi model."""
     recs = []
     if not df_active.empty:
         last_15 = df_active.tail(15)["revenue"]
@@ -187,6 +199,7 @@ def _recommendations(df_active: pd.DataFrame, hourly: list[dict]) -> list[dict]:
             "badge": "TARGET",
             "rationale": f"Dihitung dari rata-rata {len(last_15)} hari aktif terakhir.",
             "payload": {"moderate": int(round(moderate)), "aggressive": int(round(aggressive))},
+            "method": "heuristic",
         })
     if hourly:
         quiet = min(hourly, key=lambda h: h["share"])
@@ -202,6 +215,7 @@ def _recommendations(df_active: pd.DataFrame, hourly: list[dict]) -> list[dict]:
                 "hour_to": min(23, quiet["hour"] + 2),
                 "product_ids": [],
             },
+            "method": "heuristic",
         })
     return recs
 
@@ -212,10 +226,22 @@ def build_forecast_response(payload: dict) -> dict:
     horizon = payload.get("horizon") or {}
     horizon_daily = int(horizon.get("daily", 30))
 
-    open_weekdays = store_profile.get("open_weekdays") or []
-    if not open_weekdays and store_profile.get("open_on_weekends") is not None:
-        open_weekdays = list(range(1, 8)) if store_profile["open_on_weekends"] else list(range(1, 6))
-    closed_months = store_profile.get("closed_months") or []
+    # Bila klien tidak mengirim store_profile sama sekali, jangan asumsikan toko buka
+    # 7 hari/tahun penuh: model LSTM dilatih pada kalender Eatstedi (Senin-Jumat, tutup
+    # Jan/Jul), jadi itu yang jadi default paling aman untuk rollout tanggal masa depan.
+    # Klien yang benar-benar toko lain harus mengirim store_profile eksplisit.
+    if store_profile:
+        open_weekdays = store_profile.get("open_weekdays") or []
+        if not open_weekdays and store_profile.get("open_on_weekends") is not None:
+            open_weekdays = list(range(1, 8)) if store_profile["open_on_weekends"] else list(range(1, 6))
+        closed_months = store_profile.get("closed_months") or []
+        if not open_weekdays:
+            open_weekdays = EATSTEDI_OPEN_WEEKDAYS
+        if not closed_months and "closed_months" not in store_profile:
+            closed_months = EATSTEDI_CLOSED_MONTHS
+    else:
+        open_weekdays = EATSTEDI_OPEN_WEEKDAYS
+        closed_months = EATSTEDI_CLOSED_MONTHS
 
     generate_future_dates = _make_future_date_generator(open_weekdays, closed_months)
     df_active = _build_daily_dataframe(history.get("daily") or [])
