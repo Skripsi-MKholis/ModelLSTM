@@ -238,6 +238,16 @@ curl -X POST http://localhost:5000/api/sales/record \
 
 ---
 
+## API v2 (kontrak M3 untuk aplikasi POS)
+
+Selain 7 endpoint v1 di atas, `app.py` dan `app_public.py` kini juga menyediakan tiga endpoint v2 sesuai `Dokumen/28 Juli - M3.md` — dipakai oleh `LstmApiClient` di aplikasi Flutter:
+
+- **`GET /api/health`** — cek cepat (< 3 detik) apakah model sudah dimuat & server "hangat"; menentukan timeout request berikutnya di sisi klien.
+- **`POST /api/v2/forecast`** — kontrak lengkap: `store_profile` + `history` (daily/hourly/products) → `daily`, `hourly`, `product_demand`, `recommendations`. `metadata.model_used` mengikuti fallback berjenjang **lstm → seasonal_naive → naive → kosong**, tergantung jumlah hari aktif dan status kelulusan backtest (lihat di bawah).
+- **`GET /api/v2/backtest`** — laporan backtest 5 model (`Models/backtest/backtest_summary.csv`), dengan `?format=csv` untuk unduhan mentah.
+
+**Status saat ini: LSTM belum lolos kriteria produksi.** `evaluation/backtest.py` membandingkan naive, seasonal_naive, moving-average, dan LSTM (`Models/lstm_daily.keras`) secara walk-forward pada satu-satunya seri panjang yang tersedia (Eatstedi sendiri, ~314 hari aktif). Hasilnya: LSTM **tidak** mengalahkan seasonal_naive pada MAPE H+1 dan H+7 di ≥60% fold — lihat `Dokumen/M3 - Hasil Backtest.md` untuk rincian dan alasan (dataset kecil, satu toko, tanpa retraining per-fold). Karena itu `/api/v2/forecast` sengaja tetap mengembalikan `model_used: "seasonal_naive"` (dengan `fallback_reason: "backtest_not_passed"`) meski data toko mencukupi ambang 45 hari — bukan bug, melainkan penerapan jujur dari aturan §6 dokumen M3.
+
 ## Fitur Pendukung Lainnya
 
 - **`GET /`** — halaman indeks berisi daftar endpoint (mencegah 404).

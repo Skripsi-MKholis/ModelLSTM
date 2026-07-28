@@ -1,0 +1,254 @@
+---CELL 22 ---
+df = pd.read_csv(DAILY_CSV, parse_dates=['date'])
+
+# Hanya hari aktif bisnis (revenue > 0)
+df_active = df[df['revenue'] > 0].copy().reset_index(drop=True)
+print(f'Hari aktif: {len(df_active)} dari {len(df)} hari total')
+
+# ── Cyclical encoding ─────────────────────────────────────────────────────────
+df_active['week_sin'] = np.sin(2 * np.pi * df_active['week_of_year'] / 52)
+df_active['week_cos'] = np.cos(2 * np.pi * df_active['week_of_year'] / 52)
+df_active['month_sin'] = np.sin(2 * np.pi * df_active['month'] / 12)
+df_active['month_cos'] = np.cos(2 * np.pi * df_active['month'] / 12)
+df_active['dow_sin'] = np.sin(2 * np.pi * df_active['day_of_week'] / 5)
+df_active['dow_cos'] = np.cos(2 * np.pi * df_active['day_of_week'] / 5)
+
+# ── Fitur input LSTM ──────────────────────────────────────────────────────────
+FEATURES = [
+    'revenue', 'transactions', 'qty_sold',
+    'week_sin', 'week_cos', 'month_sin', 'month_cos',
+    'dow_sin', 'dow_cos', 'is_ramadan'
+]
+N_FEATURES = len(FEATURES)
+print(f'Jumlah fitur  : {N_FEATURES}')
+print(f'Fitur         : {FEATURES}')
+
+# ── Train / Validation / Test split (chronological) ──────────────────────────
+n = len(df_active)
+n_train = int(n * 0.70)
+n_val   = int(n * 0.15)
+n_test  = n - n_train - n_val
+
+df_train = df_active.iloc[:n_train]
+df_val   = df_active.iloc[n_train : n_train + n_val]
+df_test  = df_active.iloc[n_train + n_val:]
+
+print(f'\nTrain : {len(df_train)} hari  ({df_train.date.min().date()} – {df_train.date.max().date()})')
+print(f'Val   : {len(df_val)} hari  ({df_val.date.min().date()}   – {df_val.date.max().date()})')
+print(f'Test  : {len(df_test)} hari  ({df_test.date.min().date()}   – {df_test.date.max().date()})')
+
+---CELL 23 ---
+# ── MinMaxScaler — fit HANYA pada train ──────────────────────────────────────
+scaler = MinMaxScaler()
+train_scaled = scaler.fit_transform(df_train[FEATURES].values)
+val_scaled   = scaler.transform(df_val[FEATURES].values)
+test_scaled  = scaler.transform(df_test[FEATURES].values)
+
+# Scaler khusus revenue untuk inverse_transform evaluasi
+scaler_rev = MinMaxScaler()
+scaler_rev.fit(df_train[['revenue']].values)
+
+with open(os.path.join(SCALER_DIR, 'scaler_daily.pkl'), 'wb') as f:
+    pickle.dump(scaler, f)
+with open(os.path.join(SCALER_DIR, 'scaler_revenue.pkl'), 'wb') as f:
+    pickle.dump(scaler_rev, f)
+
+print('Scaler tersimpan.')
+print(f'Shape: train={train_scaled.shape}, val={val_scaled.shape}, test={test_scaled.shape}')
+
+---CELL 30 ---
+model_daily = build_lstm_model(LOOK_BACK, N_FEATURES, HORIZON)
+model_daily.summary()
+
+---CELL 34 ---
+weekly = pd.read_csv(WEEKLY_CSV, parse_dates=['week_start'])
+weekly = weekly[weekly['revenue'] > 0].sort_values('week_start').reset_index(drop=True)
+
+FEATURES_W = ['revenue', 'transactions', 'qty_sold', 'active_days']
+N_FEATURES_W = len(FEATURES_W)
+
+n_w       = len(weekly)
+n_train_w = int(n_w * 0.70)
+n_val_w   = int(n_w * 0.15)
+
+scaler_w = MinMaxScaler()
+train_w  = scaler_w.fit_transform(weekly.iloc[:n_train_w][FEATURES_W].values)
+val_w    = scaler_w.transform(weekly.iloc[n_train_w:n_train_w+n_val_w][FEATURES_W].values)
+test_w   = scaler_w.transform(weekly.iloc[n_train_w+n_val_w:][FEATURES_W].values)
+
+with open(os.path.join(SCALER_DIR, 'scaler_weekly.pkl'), 'wb') as f:
+    pickle.dump(scaler_w, f)
+
+X_train_w, y_train_w = create_sequences(train_w, LOOK_BACK_W, HORIZON_W)
+X_val_w,   y_val_w   = create_sequences(val_w,   LOOK_BACK_W, HORIZON_W)
+X_test_w,  y_test_w  = create_sequences(test_w,  LOOK_BACK_W, HORIZON_W)
+
+print(f'Weekly — train: {len(weekly.iloc[:n_train_w])} minggu, '
+      f'val: {n_val_w} minggu, test: {n_w - n_train_w - n_val_w} minggu')
+print(f'X_train_w: {X_train_w.shape}')
+
+model_weekly = build_lstm_model(LOOK_BACK_W, N_FEATURES_W, HORIZON_W, units=32)
+history_w = model_weekly.fit(
+    X_train_w, y_train_w,
+    epochs=EPOCHS,
+    batch_size=16,
+    validation_data=(X_val_w, y_val_w),
+    callbacks=CALLBACKS,
+    verbose=1
+)
+model_weekly.save(os.path.join(MODEL_DIR, 'lstm_weekly.keras'))
+print('Model mingguan tersimpan.')
+
+---CELL 36 ---
+monthly = pd.read_csv(MONTHLY_CSV)
+monthly = monthly[monthly['revenue'] > 0].sort_values(['year','month']).reset_index(drop=True)
+
+FEATURES_M   = ['revenue', 'transactions', 'qty_sold', 'active_days']
+N_FEATURES_M = len(FEATURES_M)
+
+n_m = len(monthly)
+# Data bulanan sangat terbatas (~20 bulan). Rumus minimum sampel:
+#   test harus >= LOOK_BACK_M + HORIZON_M bulan agar ada minimal 1 sequence.
+# Gunakan split 65/35 train/test TANPA val set untuk menghindari array kosong.
+n_test_m  = LOOK_BACK_M + HORIZON_M + 2   # margin 2 bulan → minimal 3 test sequences
+n_train_m = n_m - n_test_m
+n_val_m   = 0  # tidak ada val set untuk data bulanan
+
+print(f'Monthly — {n_m} bulan total  |  train: {n_train_m}  |  test: {n_test_m}  |  (no val)')
+
+scaler_m = MinMaxScaler()
+train_m  = scaler_m.fit_transform(monthly.iloc[:n_train_m][FEATURES_M].values)
+test_m   = scaler_m.transform(monthly.iloc[n_train_m:][FEATURES_M].values)
+
+with open(os.path.join(SCALER_DIR, 'scaler_monthly.pkl'), 'wb') as f:
+    pickle.dump(scaler_m, f)
+
+X_train_m, y_train_m = create_sequences(train_m, LOOK_BACK_M, HORIZON_M)
+X_test_m,  y_test_m  = create_sequences(test_m,  LOOK_BACK_M, HORIZON_M)
+
+print(f'X_train_m: {X_train_m.shape}  |  X_test_m: {X_test_m.shape}')
+
+# EarlyStopping monitor='loss' karena tidak ada val set
+CALLBACKS_M = [
+    EarlyStopping(monitor='loss', patience=20, restore_best_weights=True, verbose=1),
+]
+
+model_monthly = build_lstm_model(LOOK_BACK_M, N_FEATURES_M, HORIZON_M, units=16)
+history_m = model_monthly.fit(
+    X_train_m, y_train_m,
+    epochs=150,
+    batch_size=4,
+    callbacks=CALLBACKS_M,
+    verbose=1
+)
+model_monthly.save(os.path.join(MODEL_DIR, 'lstm_monthly.keras'))
+print('Model bulanan tersimpan.')
+
+---CELL 47 ---
+def forecast_daily(model, df_active, scaler, scaler_rev, features, look_back, horizon):
+    '''
+    Forecast horizon hari aktif ke depan dari data terakhir.
+    Returns: DataFrame dengan tanggal, hari, dan prediksi_revenue.
+    '''
+    last_data   = df_active.tail(look_back)[features].values
+    last_scaled = scaler.transform(last_data)
+
+    X_input = last_scaled.reshape(1, look_back, len(features))
+    pred_scaled = model.predict(X_input, verbose=0)[0]  # (horizon,)
+
+    # Inverse transform revenue
+    pred_rev = scaler_rev.inverse_transform(
+        pred_scaled.reshape(-1, 1)
+    ).flatten()
+
+    # Buat kalender prediksi: skip weekend & bulan libur (Jan/Jul)
+    last_date = pd.Timestamp(df_active['date'].max())
+    pred_dates = []
+    d = last_date
+    while len(pred_dates) < horizon:
+        d += pd.Timedelta(days=1)
+        if d.weekday() < 5 and d.month not in [1, 7]:
+            pred_dates.append(d)
+
+    return pd.DataFrame({
+        'tanggal'          : [d.date() for d in pred_dates],
+        'hari'             : [d.strftime('%A') for d in pred_dates],
+        'prediksi_revenue' : np.round(pred_rev, 0).astype(int),
+    })
+
+
+forecast_d = forecast_daily(model_daily, df_active, scaler, scaler_rev,
+                             FEATURES, LOOK_BACK, HORIZON)
+print('=== Prediksi 7 Hari Aktif ke Depan ===')
+print(forecast_d.to_string(index=False))
+print(f'\nTotal prediksi  : Rp {forecast_d.prediksi_revenue.sum():,.0f}')
+print(f'Rata-rata/hari  : Rp {forecast_d.prediksi_revenue.mean():,.0f}')
+
+---CELL 50 ---
+def forecast_weekly_fn(model, weekly_df, scaler_w, features_w, look_back_w, horizon_w):
+    last_data   = weekly_df.tail(look_back_w)[features_w].values
+    last_scaled = scaler_w.transform(last_data)
+
+    X_input = last_scaled.reshape(1, look_back_w, len(features_w))
+    pred_scaled = model.predict(X_input, verbose=0)[0]
+
+    # Inverse revenue (kolom 0): scale range dari scaler
+    rev_min   = scaler_w.data_min_[0]
+    rev_range = scaler_w.data_range_[0]
+    pred_rev  = np.round(pred_scaled * rev_range + rev_min, 0).astype(int)
+
+    last_week = pd.to_datetime(weekly_df['week_start'].max())
+    return pd.DataFrame({
+        'minggu_ke'        : range(1, horizon_w + 1),
+        'week_start'       : [last_week + pd.Timedelta(weeks=i+1) for i in range(horizon_w)],
+        'prediksi_revenue' : pred_rev,
+    })
+
+
+weekly_loaded = pd.read_csv(WEEKLY_CSV, parse_dates=['week_start'])
+weekly_loaded = weekly_loaded[weekly_loaded['revenue'] > 0].sort_values('week_start').reset_index(drop=True)
+
+forecast_w = forecast_weekly_fn(model_weekly, weekly_loaded, scaler_w,
+                                 FEATURES_W, LOOK_BACK_W, HORIZON_W)
+print('=== Prediksi 4 Minggu ke Depan ===')
+print(forecast_w.to_string(index=False))
+print(f'\nTotal prediksi : Rp {forecast_w.prediksi_revenue.sum():,.0f}')
+
+---CELL 52 ---
+def forecast_monthly_fn(model, monthly_df, scaler_m, features_m, look_back_m, horizon_m):
+    last_data   = monthly_df.tail(look_back_m)[features_m].values
+    last_scaled = scaler_m.transform(last_data)
+
+    X_input = last_scaled.reshape(1, look_back_m, len(features_m))
+    pred_scaled = model.predict(X_input, verbose=0)[0]
+
+    rev_min   = scaler_m.data_min_[0]
+    rev_range = scaler_m.data_range_[0]
+    pred_rev  = np.round(pred_scaled * rev_range + rev_min, 0).astype(int)
+
+    last_year  = int(monthly_df['year'].max())
+    last_month = int(monthly_df.loc[monthly_df['year'] == last_year, 'month'].max())
+    months = []
+    y, m = last_year, last_month
+    for _ in range(horizon_m):
+        m += 1
+        if m > 12:
+            m, y = 1, y + 1
+        months.append(f'{y}-{m:02d}')
+
+    return pd.DataFrame({
+        'bulan_ke'         : range(1, horizon_m + 1),
+        'year_month'       : months,
+        'prediksi_revenue' : pred_rev,
+    })
+
+
+monthly_loaded = pd.read_csv(MONTHLY_CSV)
+monthly_loaded = monthly_loaded[monthly_loaded['revenue'] > 0].sort_values(['year','month']).reset_index(drop=True)
+
+forecast_m = forecast_monthly_fn(model_monthly, monthly_loaded, scaler_m,
+                                  FEATURES_M, LOOK_BACK_M, HORIZON_M)
+print('=== Prediksi 3 Bulan ke Depan ===')
+print(forecast_m.to_string(index=False))
+print(f'\nTotal prediksi : Rp {forecast_m.prediksi_revenue.sum():,.0f}')
+

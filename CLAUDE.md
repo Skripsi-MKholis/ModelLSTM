@@ -60,6 +60,19 @@ Binary context flags in the data: `is_weekend`, `is_holiday` (month in {1,7}), `
 
 Shared `build_lstm_model` = stacked 2-layer LSTM (units, units//2) + Dropout(0.2) + L2(1e-4) + Dense(32,relu) + Dense(horizon). `create_sequences` predicts `target_col=0` (revenue). Splits are **chronological, never shuffled** (time-series leakage). `MinMaxScaler` is fit on train only; a separate revenue-only scaler is saved for `inverse_transform` back to Rupiah in evaluation. Metrics: RMSE, MAE, MAPE, all computed in Rupiah after inverse-transform.
 
+## v2 API (M3 — `v2/`, `evaluation/`)
+
+Implements the contract in `Dokumen/28 Juli - M3.md` §3 for the Flutter POS client's `LstmApiClient`. Both `app.py` and `app_public.py` call `register_v2_routes(app)` from `v2/routes.py` at import time, so v1 endpoints keep working unmodified (client falls back to v1 only on 404/405) while v2 lives at the same host/port.
+
+- `v2/baselines.py` — naive, seasonal_naive(k=7), moving_average(7). Pure functions, no I/O.
+- `v2/lstm_adapter.py` — wraps the pre-trained `Models/lstm_daily.keras` (look_back=14, 7-day native horizon, 10 features) with a recursive rollout to cover the 30-day contract horizon. Future `transactions`/`qty_sold` (unknown at inference time) are estimated from recent Rp/transaction and Rp/unit ratios, not invented. Confidence decays and the `revenue_low`/`revenue_high` band widens with rollout depth, per §4.5.
+- `v2/forecast_service.py` — orchestrates the tiered fallback (`lstm → seasonal_naive → naive → empty`) from §5, and builds the full `/api/v2/forecast` response (hourly shares, product_demand, recommendations).
+- `evaluation/backtest.py` — walk-forward backtest of the 5 models required by §6, writing `Models/backtest/backtest_summary.csv` + `backtest_folds.csv` and `Dokumen/M3 - Hasil Backtest.md` (the pass/fail decision). Re-run with `python evaluation/backtest.py` whenever `daily_sales.csv` or the trained model changes.
+
+**Production gate on `model_used = "lstm"`**: `forecast_service.lstm_cleared_production_bar()` reads the LULUS/TIDAK LULUS verdict out of `Dokumen/M3 - Hasil Backtest.md`. As of the last run (see that file) the verdict is **TIDAK LULUS** — LSTM does not beat seasonal_naive on MAPE H+1 *and* H+7 in ≥60% of walk-forward folds on this single-store dataset — so `/api/v2/forecast` currently serves `seasonal_naive` even when a store has ≥45 days of history, with `fallback_reason: "backtest_not_passed"`. This is not a bug: don't "fix" it by hardcoding `model_used = "lstm"`; re-run the backtest after retraining/augmenting data and let the decision flip naturally.
+
+`lstm_finetuned` in the backtest is a documented stand-in for `lstm_global` (same model) — this repo's data has only one store with a long series (Eatstedi itself), so there's nothing to fine-tune against yet (see §4.2 of the M3 doc and the caveat at the top of `evaluation/backtest.py`).
+
 ## app.py vs app_public.py
 
 Same 7 endpoints and heuristics; they differ in tenant assumptions:
